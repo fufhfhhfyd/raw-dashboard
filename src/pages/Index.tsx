@@ -419,7 +419,7 @@ const Index = () => {
     const [productDescription, setProductDescription] = useState('');
     const [aspectRatio, setAspectRatio] = useState<'Portrait' | 'Landscape'>('Portrait');
 
-    // Load persisted data on mount (including image preview)
+    // Load persisted data on mount (text only - images NOT persisted)
     useEffect(() => {
       const saved = localStorage.getItem('createAdFormData');
       if (saved) {
@@ -428,24 +428,21 @@ const Index = () => {
         setProductName(data.productName || '');
         setProductDescription(data.productDescription || '');
         setAspectRatio(data.aspectRatio || 'Portrait');
-        // Restore image preview if exists
-        if (data.filePreview) {
-          setFilePreview(data.filePreview);
-        }
+        // Image preview NOT restored from localStorage
       }
     }, []);
 
-    // Persist data on change (including image preview)
+    // Persist data on change (text only - images NOT persisted)
     useEffect(() => {
       const formData = {
         prompt,
         productName,
         productDescription,
-        aspectRatio,
-        filePreview // Save the base64 preview so images persist
+        aspectRatio
+        // filePreview NOT saved to avoid validation issues
       };
       localStorage.setItem('createAdFormData', JSON.stringify(formData));
-    }, [prompt, productName, productDescription, aspectRatio, filePreview]);
+    }, [prompt, productName, productDescription, aspectRatio]);
 
     const handleFileChange = (selectedFile: File | null) => {
       setFile(selectedFile);
@@ -580,11 +577,7 @@ const Index = () => {
         setFilePreview(null);
         localStorage.removeItem('createAdFormData');
         
-        // Optionally switch to dashboard view
-        setTimeout(() => {
-          setActiveView('dashboard');
-          fetchVideos();
-        }, 2000);
+        // Stay on current page - do not auto-switch tabs
 
       } catch (err: any) {
         console.error('Submit error:', err);
@@ -611,7 +604,7 @@ const Index = () => {
                 : 'bg-white border border-border text-muted-foreground hover:border-primary/50'
             }`}
           >
-            📱 Facebook Reels
+            📱 Update Product Image
           </button>
           <button
             onClick={() => setActiveTab('product')}
