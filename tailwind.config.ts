@@ -58,6 +58,18 @@ export default {
           ring: "hsl(var(--sidebar-ring))",
         },
       },
+      backgroundImage: {
+        'gradient-pink': 'var(--gradient-pink)',
+        'gradient-blue': 'var(--gradient-blue)',
+        'gradient-purple': 'var(--gradient-purple)',
+        'gradient-orange': 'var(--gradient-orange)',
+      },
+      boxShadow: {
+        'soft': 'var(--shadow-soft)',
+        'medium': 'var(--shadow-medium)',
+        'large': 'var(--shadow-large)',
+        'xl': 'var(--shadow-xl)',
+      },
       borderRadius: {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
