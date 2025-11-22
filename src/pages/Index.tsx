@@ -470,86 +470,79 @@ const Index = () => {
 
       setLoading(true);
       try {
-        // Upload file to Supabase Storage and get URL instead of sending Base64
+        // Upload file to Supabase Storage and get URL
         let fileUrl = null;
-        if (file || filePreview) {
+        if (file) {
           const supabase = getSupabase();
           if (!supabase) {
-            console.log('Supabase not configured, continuing without file upload');
-            // Continue without throwing error - webhook will handle file data differently
-          } else {
-            try {
-              // Get or convert file to blob
-              let fileToUpload: File;
-              if (file) {
-                fileToUpload = file;
-              } else if (filePreview) {
-                // Convert base64 to blob if using saved preview
-                const response = await fetch(filePreview);
-                const blob = await response.blob();
-                fileToUpload = new File([blob], 'uploaded-file', { type: blob.type });
-              } else {
-                throw new Error('No file available');
-              }
-
-              // Generate unique filename
-              const timestamp = Date.now();
-              const fileExt = fileToUpload.name.split('.').pop();
-              const fileName = `${activeTab}_${timestamp}.${fileExt}`;
-              const filePath = `ads/${fileName}`;
-
-              // Upload to Supabase Storage
-              console.log('Uploading file to Supabase Storage:', filePath);
-              const { data: uploadData, error: uploadError } = await supabase.storage
-                .from('ad-files')
-                .upload(filePath, fileToUpload, {
-                  cacheControl: '3600',
-                  upsert: false
-                });
-
-              if (uploadError) {
-                console.warn('File upload to Supabase failed:', uploadError.message);
-                if (uploadError.message.includes('Bucket not found')) {
-                  showNotification('error', 'Storage bucket "ad-files" not found. Please run the SQL in supabase-storage-setup.sql file in your Supabase SQL Editor.');
-                }
-                // Continue without URL - webhook might handle files differently
-              } else {
-                // Get public URL
-                const { data: urlData } = supabase.storage
-                  .from('ad-files')
-                  .getPublicUrl(filePath);
-
-                fileUrl = urlData.publicUrl;
-                console.log('File uploaded successfully. URL:', fileUrl);
-              }
-            } catch (storageError: any) {
-              console.warn('Storage operation failed:', storageError.message);
-              // Continue without URL
-            }
+            showNotification('error', 'Please configure Supabase settings first!');
+            setLoading(false);
+            return;
           }
+
+          try {
+            // Generate unique filename
+            const timestamp = Date.now();
+            const fileExt = file.name.split('.').pop();
+            const fileName = `${activeTab}_${timestamp}.${fileExt}`;
+            const filePath = `ads/${fileName}`;
+
+            // Upload to Supabase Storage
+            console.log('Uploading file to Supabase Storage:', filePath);
+            const { data: uploadData, error: uploadError } = await supabase.storage
+              .from('ad-files')
+              .upload(filePath, file, {
+                cacheControl: '3600',
+                upsert: false
+              });
+
+            if (uploadError) {
+              console.error('File upload failed:', uploadError);
+              if (uploadError.message.includes('Bucket not found')) {
+                showNotification('error', 'Storage bucket not found! Please run the SQL in supabase-storage-setup.sql in your Supabase SQL Editor.');
+              } else {
+                showNotification('error', `File upload failed: ${uploadError.message}`);
+              }
+              setLoading(false);
+              return;
+            }
+
+            // Get public URL
+            const { data: urlData } = supabase.storage
+              .from('ad-files')
+              .getPublicUrl(filePath);
+
+            fileUrl = urlData.publicUrl;
+            console.log('File uploaded successfully. URL:', fileUrl);
+          } catch (storageError: any) {
+            console.error('Storage error:', storageError);
+            showNotification('error', `Upload error: ${storageError.message}`);
+            setLoading(false);
+            return;
+          }
+        } else if (activeTab === 'reels') {
+          showNotification('error', 'Please select an image to upload!');
+          setLoading(false);
+          return;
         }
 
-        // Send data directly to n8n webhook with file URL, and base64 as fallback
-        const webhookPayload = {
-          // Ad creation details
+        // Send clean data to n8n webhook with only essential fields
+        const webhookPayload: any = {
           type: activeTab,
-          post_title: activeTab === 'reels' 
-            ? 'Update Product Image' 
-            : (productName || 'Ad Campaign'),
-          caption: prompt,
-          prompt_text: prompt,
-          product_name: productName || null,
-          product_description: productDescription || null,
-          aspect_ratio: aspectRatio,
-          // File data
-          file_url: fileUrl, // Prefer this if Supabase Storage is configured
-          file_base64: !fileUrl && filePreview ? filePreview : null, // Fallback to base64 if no URL
-          file_name: file?.name || 'uploaded-file',
-          file_type: file?.type || (filePreview?.startsWith('data:image') ? 'image/jpeg' : 'application/octet-stream'),
-          // Metadata
-          timestamp: new Date().toISOString(),
-          source: 'adgen_studio'
+          prompt: prompt,
+          aspect_ratio: aspectRatio
         };
+
+        // Add type-specific fields
+        if (activeTab === 'reels') {
+          webhookPayload.image_url = fileUrl;
+        } else {
+          webhookPayload.product_name = productName;
+          webhookPayload.product_description = productDescription;
+          if (fileUrl) {
+            webhookPayload.product_image_url = fileUrl;
+          }
+        }
 
         console.log('Sending to n8n webhook:', webhookUrl, webhookPayload);
 
