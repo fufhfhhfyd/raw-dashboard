@@ -415,8 +415,10 @@ const Index = () => {
     const [prompt, setPrompt] = useState('');
     const [file, setFile] = useState<File | null>(null);
     const [filePreview, setFilePreview] = useState<string | null>(null);
+    const [imageUrl, setImageUrl] = useState('');
     const [productName, setProductName] = useState('');
     const [productDescription, setProductDescription] = useState('');
+    const [productImageUrl, setProductImageUrl] = useState('');
     const [aspectRatio, setAspectRatio] = useState<'Portrait' | 'Landscape'>('Portrait');
 
     // Load persisted data on mount (text only - images NOT persisted)
@@ -428,6 +430,8 @@ const Index = () => {
         setProductName(data.productName || '');
         setProductDescription(data.productDescription || '');
         setAspectRatio(data.aspectRatio || 'Portrait');
+        setImageUrl(data.imageUrl || '');
+        setProductImageUrl(data.productImageUrl || '');
         // Image preview NOT restored from localStorage
       }
     }, []);
@@ -438,11 +442,13 @@ const Index = () => {
         prompt,
         productName,
         productDescription,
-        aspectRatio
+        aspectRatio,
+        imageUrl,
+        productImageUrl,
         // filePreview NOT saved to avoid validation issues
       };
       localStorage.setItem('createAdFormData', JSON.stringify(formData));
-    }, [prompt, productName, productDescription, aspectRatio]);
+    }, [prompt, productName, productDescription, aspectRatio, imageUrl, productImageUrl]);
 
     const handleFileChange = (selectedFile: File | null) => {
       setFile(selectedFile);
@@ -468,41 +474,28 @@ const Index = () => {
         return;
       }
 
-      // Validate file for reels tab
-      if (activeTab === 'reels' && !file) {
-        showNotification('error', 'Please select an image to upload!');
+      // Validate image URL for Update Product Image tab
+      if (activeTab === 'reels' && !imageUrl.trim()) {
+        showNotification('error', 'Please enter an image URL!');
         return;
       }
 
       setLoading(true);
       try {
-        // Convert file to base64 if present (temporary, not stored)
-        let fileBase64 = null;
-        if (file) {
-          const reader = new FileReader();
-          fileBase64 = await new Promise<string>((resolve, reject) => {
-            reader.onloadend = () => resolve(reader.result as string);
-            reader.onerror = reject;
-            reader.readAsDataURL(file);
-          });
-          console.log('File converted to base64 for webhook');
-        }
-
-        // Send clean data to n8n webhook with only essential fields
+        // Build clean payload for n8n (URLs only, no base64, no metadata)
         const webhookPayload: any = {
           type: activeTab,
           prompt: prompt,
-          aspect_ratio: aspectRatio
+          aspect_ratio: aspectRatio,
         };
 
-        // Add type-specific fields
         if (activeTab === 'reels') {
-          webhookPayload.image_base64 = fileBase64;
+          webhookPayload.image_url = imageUrl.trim();
         } else {
           webhookPayload.product_name = productName;
           webhookPayload.product_description = productDescription;
-          if (fileBase64) {
-            webhookPayload.product_image_base64 = fileBase64;
+          if (productImageUrl.trim()) {
+            webhookPayload.product_image_url = productImageUrl.trim();
           }
         }
 
@@ -528,6 +521,8 @@ const Index = () => {
         setPrompt('');
         setProductName('');
         setProductDescription('');
+        setImageUrl('');
+        setProductImageUrl('');
         setFile(null);
         setFilePreview(null);
         localStorage.removeItem('createAdFormData');
@@ -587,41 +582,69 @@ const Index = () => {
         <div className="bg-white rounded-2xl shadow-xl border border-border p-8">
           <form onSubmit={handleSubmit} className="space-y-6">
             {activeTab === 'reels' && (
-              <div className="space-y-3 animate-in fade-in slide-in-from-bottom-4">
-                <div className="flex items-center justify-between">
-                  <label className="block text-sm font-bold text-foreground">
-                    Upload Image
-                  </label>
-                  {file && (
-                    <button
-                      type="button"
-                      onClick={() => handleFileChange(null)}
-                      className="p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-                      title="Clear file"
-                    >
-                      <X size={16} />
-                    </button>
-                  )}
+              <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-sm font-bold text-foreground">
+                      Image URL (from your website or CDN)
+                    </label>
+                    {imageUrl && (
+                      <button
+                        type="button"
+                        onClick={() => setImageUrl('')}
+                        className="p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                        title="Clear image URL"
+                      >
+                        <X size={16} />
+                      </button>
+                    )}
+                  </div>
+                  <input
+                    type="url"
+                    required
+                    className="w-full p-4 border border-border rounded-xl bg-muted focus:bg-background focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all outline-none"
+                    placeholder="https://your-site.com/path-to-image.jpg"
+                    value={imageUrl}
+                    onChange={e => setImageUrl(e.target.value)}
+                  />
                 </div>
-                <div className="border-2 border-dashed border-border rounded-xl p-8 text-center hover:bg-muted transition-colors group cursor-pointer relative">
-                  <input 
-                      type="file" 
-                      required 
+
+                {/* Optional local preview upload (not sent to webhook) */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-sm font-bold text-foreground">
+                      Optional: Upload for local preview only
+                    </label>
+                    {file && (
+                      <button
+                        type="button"
+                        onClick={() => handleFileChange(null)}
+                        className="p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                        title="Clear file"
+                      >
+                        <X size={16} />
+                      </button>
+                    )}
+                  </div>
+                  <div className="border-2 border-dashed border-border rounded-xl p-8 text-center hover:bg-muted transition-colors group cursor-pointer relative">
+                    <input
+                      type="file"
                       onChange={e => handleFileChange(e.target.files?.[0] || null)}
                       className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                       accept="image/*"
-                  />
-                  {filePreview ? (
-                    <div className="space-y-3">
-                      <img src={filePreview} alt="Preview" className="max-h-48 mx-auto rounded-lg" />
-                      <p className="text-sm text-muted-foreground">{file?.name}</p>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center gap-3 text-muted-foreground group-hover:text-primary transition-colors">
-                      <Upload size={32} />
-                      <span className="text-sm font-medium">Click to upload image</span>
-                    </div>
-                  )}
+                    />
+                    {filePreview ? (
+                      <div className="space-y-3">
+                        <img src={filePreview} alt="Preview" className="max-h-48 mx-auto rounded-lg" />
+                        <p className="text-sm text-muted-foreground">{file?.name}</p>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center gap-3 text-muted-foreground group-hover:text-primary transition-colors">
+                        <Upload size={32} />
+                        <span className="text-sm font-medium">Click to upload image for preview (not sent)</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             )}
@@ -737,27 +760,34 @@ const Index = () => {
                   />
                 </div>
 
-                {/* File Upload */}
+                {/* File Upload / Preview for Product & UGC (optional, not sent if URL used) */}
                 <div className="space-y-3 animate-in fade-in slide-in-from-bottom-4">
                   <div className="flex items-center justify-between">
                     <label className="block text-sm font-bold text-foreground">
-                       {activeTab === 'product' ? 'Product Image/Video' : 'UGC Raw Footage'}
+                       {activeTab === 'product' ? 'Product Image URL' : 'UGC Media URL'}
                     </label>
-                    {file && (
+                    {productImageUrl && (
                       <button
                         type="button"
-                        onClick={() => handleFileChange(null)}
+                        onClick={() => setProductImageUrl('')}
                         className="p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-                        title="Clear file"
+                        title="Clear URL"
                       >
                         <X size={16} />
                       </button>
                     )}
                   </div>
-                  <div className="border-2 border-dashed border-border rounded-xl p-8 text-center hover:bg-muted transition-colors group cursor-pointer relative">
+                  <input
+                    type="url"
+                    className="w-full p-4 border border-border rounded-xl bg-muted focus:bg-background focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all outline-none"
+                    placeholder={activeTab === 'product' ? 'https://your-site.com/product-image.jpg' : 'https://your-site.com/ugc-video.mp4'}
+                    value={productImageUrl}
+                    onChange={e => setProductImageUrl(e.target.value)}
+                  />
+
+                  <div className="border-2 border-dashed border-border rounded-xl p-8 text-center hover:bg-muted transition-colors group cursor-pointer relative mt-4">
                     <input 
                         type="file" 
-                        required 
                         onChange={e => handleFileChange(e.target.files?.[0] || null)}
                         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                         accept="image/*,video/*"
@@ -774,7 +804,7 @@ const Index = () => {
                     ) : (
                       <div className="flex flex-col items-center gap-3 text-muted-foreground group-hover:text-primary transition-colors">
                         <Upload size={32} />
-                        <span className="text-sm font-medium">Click to upload or drag and drop</span>
+                        <span className="text-sm font-medium">Optional: upload for local preview (not sent)</span>
                       </div>
                     )}
                   </div>
