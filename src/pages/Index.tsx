@@ -468,62 +468,24 @@ const Index = () => {
         return;
       }
 
+      // Validate file for reels tab
+      if (activeTab === 'reels' && !file) {
+        showNotification('error', 'Please select an image to upload!');
+        return;
+      }
+
       setLoading(true);
       try {
-        // Upload file to Supabase Storage and get URL
-        let fileUrl = null;
+        // Convert file to base64 if present (temporary, not stored)
+        let fileBase64 = null;
         if (file) {
-          const supabase = getSupabase();
-          if (!supabase) {
-            showNotification('error', 'Please configure Supabase settings first!');
-            setLoading(false);
-            return;
-          }
-
-          try {
-            // Generate unique filename
-            const timestamp = Date.now();
-            const fileExt = file.name.split('.').pop();
-            const fileName = `${activeTab}_${timestamp}.${fileExt}`;
-            const filePath = `ads/${fileName}`;
-
-            // Upload to Supabase Storage
-            console.log('Uploading file to Supabase Storage:', filePath);
-            const { data: uploadData, error: uploadError } = await supabase.storage
-              .from('ad-files')
-              .upload(filePath, file, {
-                cacheControl: '3600',
-                upsert: false
-              });
-
-            if (uploadError) {
-              console.error('File upload failed:', uploadError);
-              if (uploadError.message.includes('Bucket not found')) {
-                showNotification('error', 'Storage bucket not found! Please run the SQL in supabase-storage-setup.sql in your Supabase SQL Editor.');
-              } else {
-                showNotification('error', `File upload failed: ${uploadError.message}`);
-              }
-              setLoading(false);
-              return;
-            }
-
-            // Get public URL
-            const { data: urlData } = supabase.storage
-              .from('ad-files')
-              .getPublicUrl(filePath);
-
-            fileUrl = urlData.publicUrl;
-            console.log('File uploaded successfully. URL:', fileUrl);
-          } catch (storageError: any) {
-            console.error('Storage error:', storageError);
-            showNotification('error', `Upload error: ${storageError.message}`);
-            setLoading(false);
-            return;
-          }
-        } else if (activeTab === 'reels') {
-          showNotification('error', 'Please select an image to upload!');
-          setLoading(false);
-          return;
+          const reader = new FileReader();
+          fileBase64 = await new Promise<string>((resolve, reject) => {
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+          });
+          console.log('File converted to base64 for webhook');
         }
 
         // Send clean data to n8n webhook with only essential fields
@@ -535,12 +497,12 @@ const Index = () => {
 
         // Add type-specific fields
         if (activeTab === 'reels') {
-          webhookPayload.image_url = fileUrl;
+          webhookPayload.image_base64 = fileBase64;
         } else {
           webhookPayload.product_name = productName;
           webhookPayload.product_description = productDescription;
-          if (fileUrl) {
-            webhookPayload.product_image_url = fileUrl;
+          if (fileBase64) {
+            webhookPayload.product_image_base64 = fileBase64;
           }
         }
 
@@ -597,7 +559,7 @@ const Index = () => {
                 : 'bg-white border border-border text-muted-foreground hover:border-primary/50'
             }`}
           >
-            📱 Update Product Image
+            Update Product Image
           </button>
           <button
             onClick={() => setActiveTab('product')}
@@ -607,7 +569,7 @@ const Index = () => {
                 : 'bg-white border border-border text-muted-foreground hover:border-primary/50'
             }`}
           >
-            🛍️ Product Ads
+            Product Ads
           </button>
           <button
             onClick={() => setActiveTab('ugc')}
@@ -617,7 +579,7 @@ const Index = () => {
                 : 'bg-white border border-border text-muted-foreground hover:border-primary/50'
             }`}
           >
-            🎬 UGC Ads
+            UGC Ads
           </button>
         </div>
 
