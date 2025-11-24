@@ -415,10 +415,8 @@ const Index = () => {
     const [prompt, setPrompt] = useState('');
     const [file, setFile] = useState<File | null>(null);
     const [filePreview, setFilePreview] = useState<string | null>(null);
-    const [imageUrl, setImageUrl] = useState('');
     const [productName, setProductName] = useState('');
     const [productDescription, setProductDescription] = useState('');
-    const [productImageUrl, setProductImageUrl] = useState('');
     const [aspectRatio, setAspectRatio] = useState<'Portrait' | 'Landscape'>('Portrait');
 
     // Load persisted data on mount (text only - images NOT persisted)
@@ -430,8 +428,6 @@ const Index = () => {
         setProductName(data.productName || '');
         setProductDescription(data.productDescription || '');
         setAspectRatio(data.aspectRatio || 'Portrait');
-        setImageUrl(data.imageUrl || '');
-        setProductImageUrl(data.productImageUrl || '');
         // Image preview NOT restored from localStorage
       }
     }, []);
@@ -443,12 +439,10 @@ const Index = () => {
         productName,
         productDescription,
         aspectRatio,
-        imageUrl,
-        productImageUrl,
         // filePreview NOT saved to avoid validation issues
       };
       localStorage.setItem('createAdFormData', JSON.stringify(formData));
-    }, [prompt, productName, productDescription, aspectRatio, imageUrl, productImageUrl]);
+    }, [prompt, productName, productDescription, aspectRatio]);
 
     const handleFileChange = (selectedFile: File | null) => {
       setFile(selectedFile);
@@ -474,15 +468,36 @@ const Index = () => {
         return;
       }
 
-      // Validate image URL for Update Product Image tab
-      if (activeTab === 'reels' && !imageUrl.trim()) {
-        showNotification('error', 'Please enter an image URL!');
+      // Validate file upload
+      if (!file) {
+        showNotification('error', 'Please upload an image or video!');
         return;
       }
 
       setLoading(true);
       try {
-        // Build clean payload for n8n (URLs only, no base64, no metadata)
+        // Upload file to Supabase storage and get public URL
+        const supabase = getSupabase();
+        if (!supabase) {
+          showNotification('error', 'Please configure Supabase settings!');
+          setLoading(false);
+          return;
+        }
+
+        const fileName = `${Date.now()}_${file.name}`;
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('ad-assets')
+          .upload(fileName, file);
+
+        if (uploadError) {
+          throw new Error(`Upload failed: ${uploadError.message}`);
+        }
+
+        const { data: { publicUrl } } = supabase.storage
+          .from('ad-assets')
+          .getPublicUrl(fileName);
+
+        // Build clean payload for n8n with uploaded image URL
         const webhookPayload: any = {
           type: activeTab,
           prompt: prompt,
@@ -490,13 +505,11 @@ const Index = () => {
         };
 
         if (activeTab === 'reels') {
-          webhookPayload.image_url = imageUrl.trim();
+          webhookPayload.image_url = publicUrl;
         } else {
           webhookPayload.product_name = productName;
           webhookPayload.product_description = productDescription;
-          if (productImageUrl.trim()) {
-            webhookPayload.product_image_url = productImageUrl.trim();
-          }
+          webhookPayload.product_image_url = publicUrl;
         }
 
         console.log('Sending to n8n webhook:', webhookUrl, webhookPayload);
@@ -521,8 +534,6 @@ const Index = () => {
         setPrompt('');
         setProductName('');
         setProductDescription('');
-        setImageUrl('');
-        setProductImageUrl('');
         setFile(null);
         setFilePreview(null);
         localStorage.removeItem('createAdFormData');
@@ -586,34 +597,7 @@ const Index = () => {
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <label className="block text-sm font-bold text-foreground">
-                      Image URL (from your website or CDN)
-                    </label>
-                    {imageUrl && (
-                      <button
-                        type="button"
-                        onClick={() => setImageUrl('')}
-                        className="p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-                        title="Clear image URL"
-                      >
-                        <X size={16} />
-                      </button>
-                    )}
-                  </div>
-                  <input
-                    type="url"
-                    required
-                    className="w-full p-4 border border-border rounded-xl bg-muted focus:bg-background focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all outline-none"
-                    placeholder="https://your-site.com/path-to-image.jpg"
-                    value={imageUrl}
-                    onChange={e => setImageUrl(e.target.value)}
-                  />
-                </div>
-
-                {/* Optional local preview upload (not sent to webhook) */}
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <label className="block text-sm font-bold text-foreground">
-                      Optional: Upload for local preview only
+                      Upload Image
                     </label>
                     {file && (
                       <button
@@ -629,6 +613,7 @@ const Index = () => {
                   <div className="border-2 border-dashed border-border rounded-xl p-8 text-center hover:bg-muted transition-colors group cursor-pointer relative">
                     <input
                       type="file"
+                      required
                       onChange={e => handleFileChange(e.target.files?.[0] || null)}
                       className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                       accept="image/*"
@@ -641,7 +626,7 @@ const Index = () => {
                     ) : (
                       <div className="flex flex-col items-center gap-3 text-muted-foreground group-hover:text-primary transition-colors">
                         <Upload size={32} />
-                        <span className="text-sm font-medium">Click to upload image for preview (not sent)</span>
+                        <span className="text-sm font-medium">Click to upload image</span>
                       </div>
                     )}
                   </div>
@@ -760,34 +745,28 @@ const Index = () => {
                   />
                 </div>
 
-                {/* File Upload / Preview for Product & UGC (optional, not sent if URL used) */}
+                {/* File Upload for Product & UGC */}
                 <div className="space-y-3 animate-in fade-in slide-in-from-bottom-4">
                   <div className="flex items-center justify-between">
                     <label className="block text-sm font-bold text-foreground">
-                       {activeTab === 'product' ? 'Product Image URL' : 'UGC Media URL'}
+                       {activeTab === 'product' ? 'Upload Product Image' : 'Upload UGC Media'}
                     </label>
-                    {productImageUrl && (
+                    {file && (
                       <button
                         type="button"
-                        onClick={() => setProductImageUrl('')}
+                        onClick={() => handleFileChange(null)}
                         className="p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-                        title="Clear URL"
+                        title="Clear file"
                       >
                         <X size={16} />
                       </button>
                     )}
                   </div>
-                  <input
-                    type="url"
-                    className="w-full p-4 border border-border rounded-xl bg-muted focus:bg-background focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all outline-none"
-                    placeholder={activeTab === 'product' ? 'https://your-site.com/product-image.jpg' : 'https://your-site.com/ugc-video.mp4'}
-                    value={productImageUrl}
-                    onChange={e => setProductImageUrl(e.target.value)}
-                  />
 
-                  <div className="border-2 border-dashed border-border rounded-xl p-8 text-center hover:bg-muted transition-colors group cursor-pointer relative mt-4">
+                  <div className="border-2 border-dashed border-border rounded-xl p-8 text-center hover:bg-muted transition-colors group cursor-pointer relative">
                     <input 
-                        type="file" 
+                        type="file"
+                        required
                         onChange={e => handleFileChange(e.target.files?.[0] || null)}
                         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                         accept="image/*,video/*"
@@ -804,7 +783,7 @@ const Index = () => {
                     ) : (
                       <div className="flex flex-col items-center gap-3 text-muted-foreground group-hover:text-primary transition-colors">
                         <Upload size={32} />
-                        <span className="text-sm font-medium">Optional: upload for local preview (not sent)</span>
+                        <span className="text-sm font-medium">{activeTab === 'product' ? 'Click to upload product image' : 'Click to upload UGC media'}</span>
                       </div>
                     )}
                   </div>
