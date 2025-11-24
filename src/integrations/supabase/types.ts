@@ -131,6 +131,24 @@ export type Database = {
         }
         Relationships: []
       }
+      profiles: {
+        Row: {
+          created_at: string | null
+          email: string | null
+          id: string
+        }
+        Insert: {
+          created_at?: string | null
+          email?: string | null
+          id: string
+        }
+        Update: {
+          created_at?: string | null
+          email?: string | null
+          id?: string
+        }
+        Relationships: []
+      }
       social_media_videos: {
         Row: {
           caption: string | null
@@ -139,6 +157,7 @@ export type Database = {
           id: number
           instagram_post_status: string | null
           post_title: string | null
+          user_id: string | null
           video_url: string | null
           youtube_post_status: string | null
         }
@@ -149,6 +168,7 @@ export type Database = {
           id: number
           instagram_post_status?: string | null
           post_title?: string | null
+          user_id?: string | null
           video_url?: string | null
           youtube_post_status?: string | null
         }
@@ -159,10 +179,19 @@ export type Database = {
           id?: number
           instagram_post_status?: string | null
           post_title?: string | null
+          user_id?: string | null
           video_url?: string | null
           youtube_post_status?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "social_media_videos_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {
