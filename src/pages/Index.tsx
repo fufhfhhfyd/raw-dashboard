@@ -1,13 +1,15 @@
 import { useState, useEffect } from 'react';
-import { Video, Settings as SettingsIcon, Plus, RefreshCw, Loader2, Upload, PlayCircle, CheckCircle2, Download, X, Trash2 } from 'lucide-react';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { useNavigate } from 'react-router-dom';
+import { Video, Settings as SettingsIcon, Plus, RefreshCw, Loader2, Upload, PlayCircle, CheckCircle2, Download, X, Trash2, LogOut } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
+import { Session } from '@supabase/supabase-js';
 import { toast } from 'sonner';
 
 type View = 'dashboard' | 'create' | 'settings';
 type TabType = 'reels' | 'product' | 'ugc';
 
 interface VideoPost {
-  id: string;
+  id: number;
   video_url: string | null;
   post_title: string;
   caption: string;
@@ -15,6 +17,7 @@ interface VideoPost {
   youtube_post_status: string;
   instagram_post_status: string;
   facebook_post_status: string;
+  user_id?: string;
 }
 
 interface AppSettings {
@@ -26,6 +29,8 @@ interface AppSettings {
 }
 
 const Index = () => {
+  const navigate = useNavigate();
+  const [session, setSession] = useState<Session | null>(null);
   const [activeView, setActiveView] = useState<View>('dashboard');
   const [videos, setVideos] = useState<VideoPost[]>([]);
   const [loading, setLoading] = useState(false);
@@ -37,9 +42,26 @@ const Index = () => {
     tableName: 'social_media_videos'
   });
 
-  const getSupabase = (): SupabaseClient | null => {
-    if (!settings.supabaseUrl || !settings.supabaseKey) return null;
-    return createClient(settings.supabaseUrl, settings.supabaseKey);
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        setSession(session);
+      }
+    );
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      if (!session) {
+        navigate('/auth');
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [navigate]);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    navigate('/auth');
   };
 
   const showNotification = (type: 'success' | 'error', message: string) => {
@@ -51,22 +73,22 @@ const Index = () => {
   };
 
   const fetchVideos = async () => {
-    const supabase = getSupabase();
-    if (!supabase) {
-      showNotification('error', 'Please configure settings first');
+    if (!session?.user) {
+      showNotification('error', 'Please login first');
       return;
     }
 
     setLoading(true);
     try {
       const { data, error } = await supabase
-        .from(settings.tableName)
+        .from('social_media_videos')
         .select('*')
+        .eq('user_id', session.user.id)
         .order('id', { ascending: false });
 
       if (error) {
         console.error('Supabase error:', error);
-        throw new Error(`Database error: ${error.message}. Check table name "${settings.tableName}" and RLS policies.`);
+        throw new Error(`Database error: ${error.message}. Check RLS policies.`);
       }
       
       console.log('Fetched videos:', data);
@@ -121,13 +143,12 @@ const Index = () => {
     }
   };
 
-  const updateVideoField = async (videoId: string, field: 'post_title' | 'caption', value: string) => {
-    const supabase = getSupabase();
-    if (!supabase) return;
+  const updateVideoField = async (videoId: number, field: 'post_title' | 'caption', value: string) => {
+    if (!session?.user) return;
 
     try {
       const { error } = await supabase
-        .from(settings.tableName)
+        .from('social_media_videos')
         .update({ [field]: value })
         .eq('id', videoId);
 
@@ -141,10 +162,9 @@ const Index = () => {
     }
   };
 
-  const deleteVideo = async (videoId: string) => {
-    const supabase = getSupabase();
-    if (!supabase) {
-      showNotification('error', 'Supabase not configured');
+  const deleteVideo = async (videoId: number) => {
+    if (!session?.user) {
+      showNotification('error', 'Please login first');
       return;
     }
 
@@ -155,7 +175,7 @@ const Index = () => {
     setLoading(true);
     try {
       const { error } = await supabase
-        .from(settings.tableName)
+        .from('social_media_videos')
         .delete()
         .eq('id', videoId);
 
@@ -179,10 +199,10 @@ const Index = () => {
   }, []);
 
   useEffect(() => {
-    if (settings.supabaseUrl && settings.supabaseKey && activeView === 'dashboard') {
+    if (session && activeView === 'dashboard') {
       fetchVideos();
     }
-  }, [settings.supabaseUrl, settings.supabaseKey, activeView]);
+  }, [session, activeView]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-purple-50/30">
@@ -200,7 +220,7 @@ const Index = () => {
               </div>
             </div>
 
-            <nav className="flex gap-2">
+            <nav className="flex gap-2 items-center">
               <button
                 onClick={() => setActiveView('dashboard')}
                 className={`px-6 py-2.5 rounded-xl font-medium transition-all ${
@@ -232,6 +252,13 @@ const Index = () => {
               >
                 <SettingsIcon size={18} />
               </button>
+              <button
+                onClick={handleLogout}
+                className="px-6 py-2.5 rounded-xl font-medium transition-all flex items-center gap-2 text-muted-foreground hover:text-foreground hover:bg-destructive/10"
+                title="Logout"
+              >
+                <LogOut size={18} />
+              </button>
             </nav>
           </div>
         </div>
@@ -249,7 +276,7 @@ const Index = () => {
   function DashboardView() {
     const [editingFields, setEditingFields] = useState<{[key: string]: {post_title: string, caption: string}}>({});
 
-    const handleFieldChange = (videoId: string, field: 'post_title' | 'caption', value: string) => {
+    const handleFieldChange = (videoId: number, field: 'post_title' | 'caption', value: string) => {
       setEditingFields(prev => ({
         ...prev,
         [videoId]: {
@@ -259,7 +286,7 @@ const Index = () => {
       }));
     };
 
-    const handleFieldBlur = (videoId: string, field: 'post_title' | 'caption') => {
+    const handleFieldBlur = (videoId: number, field: 'post_title' | 'caption') => {
       const editedValue = editingFields[videoId]?.[field];
       const currentVideo = videos.find(v => v.id === videoId);
       
@@ -476,14 +503,13 @@ const Index = () => {
 
       setLoading(true);
       try {
-        // Upload file to Supabase storage and get public URL
-        const supabase = getSupabase();
-        if (!supabase) {
-          showNotification('error', 'Please configure Supabase settings!');
+        if (!session?.user) {
+          showNotification('error', 'Please login first');
           setLoading(false);
           return;
         }
 
+        // Upload file to Supabase storage and get public URL
         const fileName = `${Date.now()}_${file.name}`;
         const { data: uploadData, error: uploadError } = await supabase.storage
           .from('ad-assets')
@@ -502,6 +528,7 @@ const Index = () => {
           type: activeTab,
           prompt: prompt,
           aspect_ratio: aspectRatio,
+          user_id: session.user.id,
         };
 
         if (activeTab === 'reels') {
